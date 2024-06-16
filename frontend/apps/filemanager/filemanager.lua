@@ -23,6 +23,7 @@ local InputDialog = require("ui/widget/inputdialog")
 local LanguageSupport = require("languagesupport")
 local Menu = require("ui/widget/menu")
 local MultiConfirmBox = require("ui/widget/multiconfirmbox")
+local NetworkListener = require("ui/network/networklistener")
 local PluginLoader = require("pluginloader")
 local ReadCollection = require("readcollection")
 local ReaderDeviceStatus = require("apps/reader/modules/readerdevicestatus")
@@ -124,6 +125,7 @@ end
 function FileManager:setupLayout()
     self.show_parent = self.show_parent or self
     self.title_bar = TitleBar:new{
+        show_parent = self.show_parent,
         fullscreen = "true",
         align = "center",
         title = self.title,
@@ -136,7 +138,7 @@ function FileManager:setupLayout()
         left_icon_size_ratio = 1,
         left_icon_tap_callback = function() self:goHome() end,
         left_icon_hold_callback = function() self:onShowFolderMenu() end,
-        right_icon = "plus",
+        right_icon = self.selected_files and "check" or "plus",
         right_icon_size_ratio = 1,
         right_icon_tap_callback = function() self:onShowPlusMenu() end,
         right_icon_hold_callback = false, -- propagate long-press to dispatcher
@@ -165,37 +167,31 @@ function FileManager:setupLayout()
 
     local file_manager = self
 
-    function file_chooser:onPathChanged(path)  -- luacheck: ignore
+    function file_chooser:onPathChanged(path)
         file_manager:updateTitleBarPath(path)
         return true
     end
 
-    function file_chooser:onFileSelect(item)  -- luacheck: ignore
-        local file = item.path
-        if file_manager.select_mode then
-            if file_manager.selected_files[file] then
-                file_manager.selected_files[file] = nil
-                item.dim = nil
-            else
-                file_manager.selected_files[file] = true
-                item.dim = true
-            end
+    function file_chooser:onFileSelect(item)
+        if file_manager.selected_files then -- toggle selection
+            item.dim = not item.dim and true or nil
+            file_manager.selected_files[item.path] = item.dim
             self:updateItems()
         else
-            file_manager:openFile(file)
+            file_manager:openFile(item.path)
         end
         return true
     end
 
     function file_chooser:onFileHold(item)
-        if file_manager.select_mode then
+        if file_manager.selected_files then
             file_manager:tapPlus()
         else
             self:showFileDialog(item)
         end
     end
 
-    function file_chooser:showFileDialog(item)  -- luacheck: ignore
+    function file_chooser:showFileDialog(item)
         local file = item.path
         local is_file = item.is_file
         local is_not_parent_folder = not item.is_go_up
@@ -233,7 +229,7 @@ function FileManager:setupLayout()
                     text = _("Select"),
                     callback = function()
                         UIManager:close(self.file_dialog)
-                        file_manager:onToggleSelectMode(true) -- no full screen refresh
+                        file_manager:onToggleSelectMode()
                         if is_file then
                             file_manager.selected_files[file] = true
                             item.dim = true
@@ -292,7 +288,7 @@ function FileManager:setupLayout()
                 table.insert(buttons, {}) -- separator
                 table.insert(buttons, {
                     filemanagerutil.genResetSettingsButton(doc_settings_or_file, close_dialog_refresh_callback),
-                    file_manager.collections:genAddToCollectionButton(file, close_dialog_callback),
+                    file_manager.collections:genAddToCollectionButton(file, close_dialog_callback, refresh_callback),
                 })
             end
             table.insert(buttons, {
@@ -379,6 +375,9 @@ function FileManager:registerKeyEvents()
         self.key_events.Home = { { "Home" } }
         -- Override the menu.lua way of handling the back key
         self.file_chooser.key_events.Back = { { Device.input.group.Back } }
+        if Device:hasScreenKB() then
+            self.key_events.ToggleWifi = { { "ScreenKB", "Home" } }
+        end
         if not Device:hasFewKeys() then
             -- Also remove the handler assigned to the "Back" key by menu.lua
             self.file_chooser.key_events.Close = nil
@@ -423,6 +422,7 @@ function FileManager:init()
     self:registerModule("wikipedia", ReaderWikipedia:new{ ui = self })
     self:registerModule("devicestatus", ReaderDeviceStatus:new{ ui = self })
     self:registerModule("devicelistener", DeviceListener:new{ ui = self })
+    self:registerModule("networklistener", NetworkListener:new{ ui = self })
 
     -- koreader plugins
     for _, plugin_module in ipairs(PluginLoader:loadPlugins()) do
@@ -436,11 +436,6 @@ function FileManager:init()
                             "at", plugin_module.path)
             end
         end
-    end
-
-    if Device:hasWifiToggle() then
-        local NetworkListener = require("ui/network/networklistener")
-        table.insert(self, NetworkListener:new{ ui = self })
     end
 
     self:initGesListener()
@@ -495,14 +490,21 @@ function FileManager:onShowPlusMenu()
     return true
 end
 
-function FileManager:onToggleSelectMode(no_refresh)
+function FileManager:onToggleSelectMode(do_refresh)
     logger.dbg("toggle select mode")
-    self.select_mode = not self.select_mode
-    self.selected_files = self.select_mode and {} or nil
-    self.title_bar:setRightIcon(self.select_mode and "check" or "plus")
-    if not no_refresh then
-        self:onRefresh()
+    if self.selected_files then
+        self.selected_files = nil
+        self.title_bar:setRightIcon("plus")
+        if do_refresh then
+            self.file_chooser:refreshPath()
+        else
+            self.file_chooser:selectAllFilesInFolder(false) -- undim
+        end
+    else
+        self.selected_files = {}
+        self.title_bar:setRightIcon("check")
     end
+    return true
 end
 
 function FileManager:tapPlus()
@@ -514,9 +516,9 @@ function FileManager:tapPlus()
     end
 
     local title, buttons
-    if self.select_mode then
+    if self.selected_files then
         local function toggle_select_mode_callback()
-            self:onToggleSelectMode()
+            self:onToggleSelectMode(true)
         end
         local select_count = util.tableSize(self.selected_files)
         local actions_enabled = select_count > 0
@@ -624,7 +626,7 @@ function FileManager:tapPlus()
                     text = _("Select files"),
                     callback = function()
                         UIManager:close(self.file_dialog)
-                        self:onToggleSelectMode(true) -- no full screen refresh
+                        self:onToggleSelectMode()
                     end,
                 },
             },
@@ -722,7 +724,7 @@ function FileManager:tapPlus()
         title = title,
         title_align = "center",
         buttons = buttons,
-        select_mode = self.select_mode, -- for coverbrowser
+        select_mode = self.selected_files and true or nil, -- for coverbrowser
     }
     UIManager:show(self.file_dialog)
 end
@@ -731,7 +733,7 @@ function FileManager:reinit(path, focused_file)
     UIManager:flushSettings()
     self.dimen = Screen:getSize()
     -- backup the root path and path items
-    self.root_path = path or self.file_chooser.path
+    self.root_path = BaseUtil.realpath(path or self.file_chooser.path)
     local path_items_backup = {}
     for k, v in pairs(self.file_chooser.path_items) do
         path_items_backup[k] = v
@@ -746,9 +748,6 @@ function FileManager:reinit(path, focused_file)
     -- looks unnecessary (cheap with classic mode, less cheap with
     -- CoverBrowser plugin's cover image renderings)
     -- self:onRefresh()
-    if self.select_mode then
-        self.title_bar:setRightIcon("check")
-    end
 end
 
 function FileManager:getCurrentDir()
@@ -857,6 +856,10 @@ function FileManager:pasteFileFromClipboard(file)
     local dest_path = BaseUtil.realpath(file or self.file_chooser.path)
     dest_path = isFile(dest_path) and dest_path:match("(.*/)") or dest_path
     local dest_file = BaseUtil.joinPath(dest_path, orig_name)
+    if orig_file == dest_file or orig_file == dest_path then -- do not paste to itself
+        self.clipboard = nil
+        return
+    end
     local is_file = isFile(orig_file)
 
     local function doPaste()
@@ -948,19 +951,23 @@ function FileManager:pasteSelectedFiles(overwrite)
     for orig_file in pairs(self.selected_files) do
         local orig_name = BaseUtil.basename(orig_file)
         local dest_file = BaseUtil.joinPath(dest_path, orig_name)
-        local ok
-        local dest_mode = lfs.attributes(dest_file, "mode")
-        if not dest_mode or (dest_mode == "file" and overwrite) then
-            if self.cutfile then
-                ok = self:moveFile(orig_file, dest_path)
-            else
-                ok = self:copyRecursive(orig_file, dest_path)
-            end
-        end
-        if ok then
-            DocSettings.updateLocation(orig_file, dest_file, not self.cutfile)
-            ok_files[orig_file] = true
+        if BaseUtil.realpath(orig_file) == dest_file then -- do not paste to itself
             self.selected_files[orig_file] = nil
+        else
+            local ok
+            local dest_mode = lfs.attributes(dest_file, "mode")
+            if not dest_mode or (dest_mode == "file" and overwrite) then
+                if self.cutfile then
+                    ok = self:moveFile(orig_file, dest_path)
+                else
+                    ok = self:copyRecursive(orig_file, dest_path)
+                end
+            end
+            if ok then
+                DocSettings.updateLocation(orig_file, dest_file, not self.cutfile)
+                ok_files[orig_file] = true
+                self.selected_files[orig_file] = nil
+            end
         end
     end
     local skipped_nb = util.tableSize(self.selected_files)
@@ -981,7 +988,7 @@ function FileManager:pasteSelectedFiles(overwrite)
             icon = "notice-warning",
         })
     else
-        self:onToggleSelectMode()
+        self:onToggleSelectMode(true)
     end
 end
 
@@ -1109,7 +1116,7 @@ function FileManager:deleteSelectedFiles()
             icon = "notice-warning",
         })
     else
-        self:onToggleSelectMode()
+        self:onToggleSelectMode(true)
     end
 end
 
@@ -1200,7 +1207,7 @@ function FileManager:renameFile(file, basename, is_file)
 end
 
 --- @note: This is the *only* safe way to instantiate a new FileManager instance!
-function FileManager:showFiles(path, focused_file)
+function FileManager:showFiles(path, focused_file, selected_files)
     -- Warn about and close any pre-existing FM instances first...
     if FileManager.instance then
         logger.warn("FileManager instance mismatch! Tried to spin up a new instance, while we still have an existing one:", tostring(FileManager.instance))
@@ -1208,7 +1215,7 @@ function FileManager:showFiles(path, focused_file)
         FileManager.instance:onClose()
     end
 
-    path = path or G_reader_settings:readSetting("lastdir") or filemanagerutil.getDefaultDir()
+    path = BaseUtil.realpath(path or G_reader_settings:readSetting("lastdir") or filemanagerutil.getDefaultDir())
     G_reader_settings:saveSetting("lastdir", path)
     self:setRotationMode()
     local file_manager = FileManager:new{
@@ -1216,6 +1223,7 @@ function FileManager:showFiles(path, focused_file)
         covers_fullscreen = true, -- hint for UIManager:_repaint()
         root_path = path,
         focused_file = focused_file,
+        selected_files = selected_files,
     }
     UIManager:show(file_manager)
 end
@@ -1340,6 +1348,7 @@ function FileManager:showSelectedFilesList()
         item_table = selected_files,
         is_borderless = true,
         is_popout = false,
+        title_bar_fm_style = true,
         truncate_left = true,
         onMenuSelect = function(_, item)
             UIManager:close(menu)
@@ -1448,6 +1457,7 @@ function FileManager:showOpenWithDialog(file)
     table.insert(buttons, {
         {
             text = _("Cancel"),
+            id = "close",
             callback = function()
                 UIManager:close(dialog)
             end,
@@ -1514,6 +1524,69 @@ function FileManager:openFile(file, provider, doc_caller_callback, aux_caller_ca
         local ReaderUI = require("apps/reader/readerui")
         ReaderUI:showReader(file, provider)
     end
+end
+
+-- Dispatcher helpers
+
+function FileManager.getDisplayModeActions()
+    local action_names, action_texts = { "classic" }, { _("Classic (filename only)") }
+    local ui = FileManager.instance or require("apps/reader/readerui").instance
+    if ui.coverbrowser then
+        for _, v in ipairs(ui.coverbrowser.modes) do
+            local action_text, action_name = unpack(v)
+            if action_name then -- skip Classic
+                table.insert(action_names, action_name)
+                table.insert(action_texts, action_text)
+            end
+        end
+    end
+    return action_names, action_texts
+end
+
+function FileManager:onSetDisplayMode(mode)
+    if self.coverbrowser then
+        mode = mode ~= "classic" and mode or nil
+        self.coverbrowser:setDisplayMode(mode)
+    end
+    return true
+end
+
+function FileManager.getSortByActions()
+    local collates = {}
+    for k, v in pairs(FileChooser.collates) do
+        table.insert(collates, {
+            name = k,
+            text = v.text,
+            menu_order = v.menu_order,
+        })
+    end
+    table.sort(collates, function(a, b) return a.menu_order < b.menu_order end)
+
+    local action_names, action_texts = {}, {}
+    for _, v in ipairs(collates) do
+        table.insert(action_names, v.name)
+        table.insert(action_texts, v.text)
+    end
+    return action_names, action_texts
+end
+
+function FileManager:onSetSortBy(mode)
+    G_reader_settings:saveSetting("collate", mode)
+    self.file_chooser:clearSortingCache()
+    self.file_chooser:refreshPath()
+    return true
+end
+
+function FileManager:onSetReverseSorting(toggle)
+    G_reader_settings:saveSetting("reverse_collate", toggle or nil)
+    self.file_chooser:refreshPath()
+    return true
+end
+
+function FileManager:onSetMixedSorting(toggle)
+    G_reader_settings:saveSetting("collate_mixed", toggle or nil)
+    self.file_chooser:refreshPath()
+    return true
 end
 
 return FileManager

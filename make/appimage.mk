@@ -7,9 +7,9 @@ update: all
 	# remove old package if any
 	rm -f koreader-appimage-$(MACHINE)-$(VERSION).appimage
 	$(SYMLINK) $(abspath $(APPIMAGE_DIR)/AppRun) $(INSTALL_DIR)/koreader/
-	$(SYMLINK) $(abspath $(APPIMAGE_DIR)/koreader.appdata.xml) $(INSTALL_DIR)/koreader/
 	$(SYMLINK) $(abspath $(APPIMAGE_DIR)/koreader.desktop) $(INSTALL_DIR)/koreader/
 	$(SYMLINK) $(abspath resources/koreader.png) $(INSTALL_DIR)/koreader/
+	sed -e 's/%%VERSION%%/$(VERSION)/' -e 's/%%DATE%%/$(RELEASE_DATE)/' $(PLATFORM_DIR)/common/koreader.metainfo.xml >$(INSTALL_DIR)/koreader/koreader.appdata.xml
 	# TODO at best this is DebUbuntu specific
 	$(SYMLINK) /usr/lib/x86_64-linux-gnu/libSDL2-2.0.so.0 $(INSTALL_DIR)/koreader/libs/libSDL2.so
 	# required for our stock Ubuntu SDL even though we don't use sound
@@ -33,4 +33,4 @@ endif
 		ARCH=x86_64 "$$OLDPWD/$(APPIMAGETOOL)" --appimage-extract-and-run koreader && \
 		mv *.AppImage ../../koreader-$(DIST)-$(MACHINE)-$(VERSION).AppImage
 
-.PHONY: update
+PHONY += update

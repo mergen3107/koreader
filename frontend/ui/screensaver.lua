@@ -265,7 +265,7 @@ local function addOverlayMessage(widget, widget_height, text)
 end
 
 function Screensaver:chooseFolder()
-    local title_header = _("Current screensaver folder:")
+    local title_header = _("Current random image folder:")
     local current_path = G_reader_settings:readSetting("screensaver_dir")
     local caller_callback = function(path)
         G_reader_settings:saveSetting("screensaver_dir", path)
@@ -275,7 +275,7 @@ end
 
 function Screensaver:chooseFile()
     local title_header, current_path, file_filter, caller_callback
-    title_header = _("Current sleep screen image or document cover:")
+    title_header = _("Current image or document cover:")
     current_path = G_reader_settings:readSetting("screensaver_document_cover")
     file_filter = function(filename)
         return DocumentRegistry:hasProvider(filename)
@@ -587,23 +587,21 @@ function Screensaver:show()
     local message_height
     if self.show_message then
         -- Handle user settings & fallbacks, with that prefix mess on top...
-        local screensaver_message
+        local screensaver_message = self.default_screensaver_message
         if G_reader_settings:has(self.prefix .. "screensaver_message") then
             screensaver_message = G_reader_settings:readSetting(self.prefix .. "screensaver_message")
-        else
-            if G_reader_settings:has("screensaver_message") then
-                screensaver_message = G_reader_settings:readSetting("screensaver_message")
-            else
-                -- In the absence of a custom message, use the event message if any, barring that, use the default message.
-                if self.event_message then
-                    screensaver_message = self.event_message
-                    -- The overlay is only ever populated with the event message, and we only want to show it once ;).
-                    self.overlay_message = nil
-                else
-                    screensaver_message = self.default_screensaver_message
-                end
+        elseif G_reader_settings:has("screensaver_message") then
+            screensaver_message = G_reader_settings:readSetting("screensaver_message")
+        end
+        -- If the message is set to the defaults (which is also the case when it's unset), prefer the event message if there is one.
+        if screensaver_message == self.default_screensaver_message then
+            if self.event_message then
+                screensaver_message = self.event_message
+                -- The overlay is only ever populated with the event message, and we only want to show it once ;).
+                self.overlay_message = nil
             end
         end
+
         -- NOTE: Only attempt to expand if there are special characters in the message.
         if screensaver_message:find("%%") then
             screensaver_message = self:expandSpecial(screensaver_message, self.event_message or self.default_screensaver_message)

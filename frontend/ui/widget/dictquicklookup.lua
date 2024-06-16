@@ -101,11 +101,10 @@ function DictQuickLookup:init()
     end
     self.image_alt_face = Font:getFace("cfont", font_size_alt)
     if Device:hasKeys() then
-        self.key_events = {
-            ReadPrevResult = { { Input.group.PgBack } },
-            ReadNextResult = { { Input.group.PgFwd } },
-            Close = { { Input.group.Back } },
-        }
+        self.key_events.ReadPrevResult = { { Input.group.PgBack } }
+        self.key_events.ReadNextResult = { { Input.group.PgFwd } }
+        self.key_events.Close = { { Input.group.Back } }
+        self.key_events.ShowResultsMenu = { { "Menu" } }
     end
     if Device:isTouchDevice() then
         local range = Geom:new{
@@ -227,7 +226,7 @@ function DictQuickLookup:init()
             if self.is_wiki then
                 self:showWikiResultsMenu()
             else
-                self:showResultsMenu()
+                self:onShowResultsMenu()
             end
         end,
         left_icon_hold_callback = not self.is_wiki and function() self:showResultsAltMenu() end or nil,
@@ -526,8 +525,8 @@ function DictQuickLookup:init()
             })
         end
     end
-    if self.tweak_buttons_func then
-        self:tweak_buttons_func(buttons)
+    if self.ui then
+        self.ui:handleEvent(Event:new("DictButtonsReady", self, buttons))
     end
     -- Bottom buttons get a bit less padding so their line separators
     -- reach out from the content to the borders a bit more
@@ -721,8 +720,10 @@ function DictQuickLookup:init()
     -- NT: add dict_title.left_button and lookup_edit_button to FocusManager.
     -- It is better to add these two buttons into self.movable, but it is not a FocusManager.
     -- Only self.button_table is a FocusManager, so workaground is inserting these two buttons into self.button_table.layout.
-    table.insert(self.button_table.layout, 1, { self.dict_title.left_button });
-    table.insert(self.button_table.layout, 2, { lookup_edit_button });
+    if Device:hasDPad() then
+        table.insert(self.button_table.layout, 1, { self.dict_title.left_button });
+        table.insert(self.button_table.layout, 2, { lookup_edit_button });
+    end
 
     -- We're a new window
     table.insert(DictQuickLookup.window_list, self)
@@ -1326,7 +1327,7 @@ function DictQuickLookup:lookupWikipedia(get_fullpage, word, is_sane, lang)
     self.ui:handleEvent(Event:new("LookupWikipedia", word, is_sane, self.word_boxes, get_fullpage, lang))
 end
 
-function DictQuickLookup:showResultsMenu()
+function DictQuickLookup:onShowResultsMenu()
     -- Show one row: "| word | dict |" for each result
     local width = math.floor(self.width * 0.75)
     local right_width = math.floor(width * 0.5)
@@ -1385,6 +1386,7 @@ function DictQuickLookup:showResultsMenu()
     button_dialog:setScrolledOffset(self.menu_scrolled_offsets["main"])
     self.menu_opened[button_dialog] = true
     UIManager:show(button_dialog)
+    return true
 end
 
 function DictQuickLookup:showResultsAltMenu()

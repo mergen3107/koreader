@@ -211,18 +211,18 @@ local function _quadpointsFromPboxes(pboxes)
     -- will also need mupdf_h.lua to be evaluated once
     -- but this is guaranteed at this point
     local n = #pboxes
-    local quadpoints = ffi.new("float[?]", 8*n)
+    local quadpoints = ffi.new("fz_quad[?]", n)
     for i=1, n do
         -- The order must be left bottom, right bottom, left top, right top.
         -- https://bugs.ghostscript.com/show_bug.cgi?id=695130
-        quadpoints[8*i-8] = pboxes[i].x
-        quadpoints[8*i-7] = pboxes[i].y + pboxes[i].h
-        quadpoints[8*i-6] = pboxes[i].x + pboxes[i].w
-        quadpoints[8*i-5] = pboxes[i].y + pboxes[i].h
-        quadpoints[8*i-4] = pboxes[i].x
-        quadpoints[8*i-3] = pboxes[i].y
-        quadpoints[8*i-2] = pboxes[i].x + pboxes[i].w
-        quadpoints[8*i-1] = pboxes[i].y
+        quadpoints[i-1].ll.x = pboxes[i].x
+        quadpoints[i-1].ll.y = pboxes[i].y + pboxes[i].h - 1
+        quadpoints[i-1].lr.x = pboxes[i].x + pboxes[i].w - 1
+        quadpoints[i-1].lr.y = pboxes[i].y + pboxes[i].h - 1
+        quadpoints[i-1].ul.x = pboxes[i].x
+        quadpoints[i-1].ul.y = pboxes[i].y
+        quadpoints[i-1].ur.x = pboxes[i].x + pboxes[i].w - 1
+        quadpoints[i-1].ur.y = pboxes[i].y
     end
     return quadpoints, n
 end
@@ -232,10 +232,10 @@ local function _quadpointsToPboxes(quadpoints, n)
     local pboxes = {}
     for i=1, n do
         table.insert(pboxes, {
-            x = quadpoints[8*i-4],
-            y = quadpoints[8*i-3],
-            w = quadpoints[8*i-6] - quadpoints[8*i-4],
-            h = quadpoints[8*i-5] - quadpoints[8*i-3],
+            x = quadpoints[i-1].ul.x,
+            y = quadpoints[i-1].ul.y,
+            w = quadpoints[i-1].lr.x - quadpoints[i-1].ul.x + 1,
+            h = quadpoints[i-1].lr.y - quadpoints[i-1].ul.y + 1,
         })
     end
     return pboxes
@@ -362,16 +362,22 @@ function PdfDocument:register(registry)
     registry:addProvider("cbt", "application/vnd.comicbook+tar", self, 100)
     registry:addProvider("cbz", "application/vnd.comicbook+zip", self, 100)
     registry:addProvider("cbz", "application/x-cbz", self, 100) -- Alternative mimetype for OPDS.
+    registry:addProvider("cfb", "application/octet-stream", self, 80) -- Compound File Binary, a Microsoft general-purpose file with a file-system-like structure.
+    registry:addProvider("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", self, 80)
     registry:addProvider("epub", "application/epub+zip", self, 50)
     registry:addProvider("epub3", "application/epub+zip", self, 50)
     registry:addProvider("fb2", "application/fb2", self, 80)
     registry:addProvider("htm", "text/html", self, 90)
     registry:addProvider("html", "text/html", self, 90)
+    registry:addProvider("mobi", "application/x-mobipocket-ebook", self, 80)
     registry:addProvider("pdf", "application/pdf", self, 100)
+    registry:addProvider("pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", self, 80)
     registry:addProvider("tar", "application/x-tar", self, 10)
+    registry:addProvider("txt", "text/plain", self, 80)
     registry:addProvider("xhtml", "application/xhtml+xml", self, 90)
     registry:addProvider("xml", "application/xml", self, 10)
     registry:addProvider("xps", "application/oxps", self, 100)
+    registry:addProvider("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", self, 80)
     registry:addProvider("zip", "application/zip", self, 20)
 
     --- Picture types ---

@@ -21,6 +21,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = require("ui/widget/inputdialog")
 local LanguageSupport = require("languagesupport")
+local NetworkListener = require("ui/network/networklistener")
 local Notification = require("ui/widget/notification")
 local PluginLoader = require("pluginloader")
 local ReaderActivityIndicator = require("apps/reader/modules/readeractivityindicator")
@@ -61,6 +62,7 @@ local Screenshoter = require("ui/widget/screenshoter")
 local SettingsMigration = require("ui/data/settings_migration")
 local UIManager = require("ui/uimanager")
 local ffiUtil  = require("ffi/util")
+local filemanagerutil = require("apps/filemanager/filemanagerutil")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local time = require("ui/time")
@@ -434,6 +436,12 @@ function ReaderUI:init()
         view = self.view,
         ui = self,
     })
+    self:registerModule("networklistener", NetworkListener:new {
+        document = self.document,
+        view = self.view,
+        ui = self,
+    })
+
     -- koreader plugins
     for _, plugin_module in ipairs(PluginLoader:loadPlugins()) do
         local ok, plugin_or_err = PluginLoader:createPluginInstance(
@@ -449,15 +457,6 @@ function ReaderUI:init()
             logger.dbg("RD loaded plugin", plugin_module.name,
                         "at", plugin_module.path)
         end
-    end
-
-    if Device:hasWifiToggle() then
-        local NetworkListener = require("ui/network/networklistener")
-        self:registerModule("networklistener", NetworkListener:new {
-            document = self.document,
-            view = self.view,
-            ui = self,
-        })
     end
 
     -- Allow others to change settings based on external factors
@@ -524,6 +523,18 @@ function ReaderUI:registerKeyEvents()
     if Device:hasKeys() then
         self.key_events.Home = { { "Home" } }
         self.key_events.Reload = { { "F5" } }
+        if Device:hasDPad() and Device:useDPadAsActionKeys() then
+            self.key_events.KeyContentSelection = { { { "Up", "Down" } }, event = "StartHighlightIndicator" }
+        end
+        if Device:hasScreenKB() or Device:hasSymKey() then
+            if Device:hasKeyboard() then
+                self.key_events.KeyToggleWifi = { { "Shift", "Home" }, event = "ToggleWifi" }
+                self.key_events.OpenLastDoc = { { "Shift", "Back" } }
+            else -- Currently exclusively targets Kindle 4.
+                self.key_events.KeyToggleWifi = { { "ScreenKB", "Home" }, event = "ToggleWifi" }
+                self.key_events.OpenLastDoc = { { "ScreenKB", "Back" } }
+            end
+        end
     end
 end
 
@@ -552,13 +563,12 @@ function ReaderUI:getLastDirFile(to_file_browser)
     return last_dir, last_file
 end
 
-function ReaderUI:showFileManager(file)
+function ReaderUI:showFileManager(file, selected_files)
     local FileManager = require("apps/filemanager/filemanager")
 
     local last_dir, last_file
     if file then
         last_dir = util.splitFilePathName(file)
-        last_dir = last_dir:match("(.*)/")
         last_file = file
     else
         last_dir, last_file = self:getLastDirFile(true)
@@ -566,7 +576,7 @@ function ReaderUI:showFileManager(file)
     if FileManager.instance then
         FileManager.instance:reinit(last_dir, last_file)
     else
-        FileManager:showFiles(last_dir, last_file)
+        FileManager:showFiles(last_dir, last_file, selected_files)
     end
 end
 
@@ -594,14 +604,14 @@ function ReaderUI:showReader(file, provider, seamless)
     file = ffiUtil.realpath(file)
     if lfs.attributes(file, "mode") ~= "file" then
         UIManager:show(InfoMessage:new{
-             text = T(_("File '%1' does not exist."), BD.filepath(file))
+             text = T(_("File '%1' does not exist."), BD.filepath(filemanagerutil.abbreviate(file)))
         })
         return
     end
 
     if not DocumentRegistry:hasProvider(file) and provider == nil then
         UIManager:show(InfoMessage:new{
-            text = T(_("File '%1' is not supported."), BD.filepath(file))
+            text = T(_("File '%1' is not supported."), BD.filepath(filemanagerutil.abbreviate(file)))
         })
         self:showFileManager(file)
         return
@@ -617,7 +627,7 @@ end
 
 function ReaderUI:showReaderCoroutine(file, provider, seamless)
     UIManager:show(InfoMessage:new{
-        text = T(_("Opening file '%1'."), BD.filepath(file)),
+        text = T(_("Opening file '%1'."), BD.filepath(filemanagerutil.abbreviate(file))),
         timeout = 0.0,
         invisible = seamless,
     })

@@ -41,8 +41,11 @@ local Device = {
     hasAuxBattery = no,
     hasKeyboard = no,
     hasKeys = no,
+    hasScreenKB = no, -- in practice only some Kindles
+    hasSymKey = no, -- in practice only some Kindles
     canKeyRepeat = no,
     hasDPad = no,
+    useDPadAsActionKeys = no,
     hasExitOptions = yes,
     hasFewKeys = no,
     hasWifiToggle = yes,
@@ -167,6 +170,30 @@ function Device:invertButtons()
     end
 end
 
+function Device:invertButtonsLeft()
+    if self:hasKeys() and self.input and self.input.event_map then
+        for key, value in pairs(self.input.event_map) do
+            if value == "LPgFwd" then
+                self.input.event_map[key] = "LPgBack"
+            elseif value == "LPgBack" then
+                self.input.event_map[key] = "LPgFwd"
+            end
+        end
+    end
+end
+
+function Device:invertButtonsRight()
+    if self:hasKeys() and self.input and self.input.event_map then
+        for key, value in pairs(self.input.event_map) do
+            if value == "RPgFwd" then
+                self.input.event_map[key] = "RPgBack"
+            elseif value == "RPgBack" then
+                self.input.event_map[key] = "RPgFwd"
+            end
+        end
+    end
+end
+
 function Device:init()
     if not self.screen then
         error("screen/framebuffer must be implemented")
@@ -229,6 +256,12 @@ function Device:init()
     if self:hasKeys() then
         if G_reader_settings:isTrue("input_invert_page_turn_keys") then
             self:invertButtons()
+        end
+        if G_reader_settings:isTrue("input_invert_left_page_turn_keys") then
+            self:invertButtonsLeft()
+        end
+        if G_reader_settings:isTrue("input_invert_right_page_turn_keys") then
+            self:invertButtonsRight()
         end
     end
 
@@ -569,7 +602,7 @@ function Device:exit(restart)
     G_reader_settings:close()
 
     -- I/O teardown
-    require("ffi/input"):closeAll()
+    self.input.teardown()
 end
 
 -- Lifted from busybox's libbb/inet_cksum.c

@@ -39,12 +39,12 @@ local search_used_metadata = {
 }
 
 local function slim(book, is_search)
-    local slim_book = {}
+    local slim_book = rapidjson.object({})
     for _, k in ipairs(is_search and search_used_metadata or used_metadata) do
         if k == "series" or k == "series_index" then
             slim_book[k] = book[k] or rapidjson.null
         elseif k == "tags" or k == "authors" then
-            slim_book[k] = book[k] or {}
+            slim_book[k] = book[k] or rapidjson.array({})
         else
             slim_book[k] = book[k]
         end
@@ -52,9 +52,9 @@ local function slim(book, is_search)
     return slim_book
 end
 
--- this is the max file size we attempt to decode using json. For larger
--- files we want to attempt to manually parse the file to avoid OOM errors
-local MAX_JSON_FILESIZE = 30 * 1000 * 1000
+-- This is the max file size we attempt to decode using rapidjson.
+-- For larger files we use a sax parser to avoid OOM errors
+local MAX_JSON_FILESIZE = 50 * 1024 * 1024
 
 --- find calibre files for a given dir
 local function findCalibreFiles(dir)
@@ -77,10 +77,10 @@ end
 local CalibreMetadata = {
     -- info about the library itself. It should
     -- hold a table with the contents of "driveinfo.calibre"
-    drive = {},
+    drive = rapidjson.array({}),
     -- info about the books in this library. It should
     -- hold a table with the contents of "metadata.calibre"
-    books = {},
+    books = rapidjson.array({}),
 }
 
 --- loads driveinfo from JSON file
@@ -113,23 +113,26 @@ function CalibreMetadata:loadBookList()
     local attr = lfs.attributes(self.metadata)
     if not attr then
         logger.warn("Unable to get file attributes from JSON file:", self.metadata)
-        return {}
+        return rapidjson.array({})
     end
     local valid = attr.mode == "file" and attr.size > 0
     if not valid then
         logger.warn("File is invalid", self.metadata)
-        return {}
+        return rapidjson.array({})
     end
     local books, err
-    if attr.size > MAX_JSON_FILESIZE then
-        books, err = parser.parseFile(self.metadata)
+    local impl = G_reader_settings:readSetting("calibre_json_parser") or attr.size > MAX_JSON_FILESIZE and "safe" or "fast"
+    if impl == "fast" then
+        books, err = rapidjson.load_calibre(self.metadata)
+    elseif impl == "safe" then
+         books, err = parser.parseFile(self.metadata)
     else
         books, err = rapidjson.load(self.metadata)
     end
     if not books then
         logger.warn(string.format("Unable to load library from json file %s: \n%s",
             self.metadata, err))
-        return {}
+        return rapidjson.array({})
     end
     return books
 end
@@ -138,7 +141,7 @@ end
 function CalibreMetadata:saveBookList()
     local file = self.metadata
     local books = self.books
-    rapidjson.dump(rapidjson.array(books), file, { pretty = true })
+    rapidjson.dump(books, file, { pretty = true })
 end
 
 -- add a book to our books table
@@ -218,8 +221,8 @@ end
 
 -- cleans all temp data stored for current library.
 function CalibreMetadata:clean()
-    self.books = {}
-    self.drive = {}
+    self.books = rapidjson.array({})
+    self.drive = rapidjson.array({})
     self.path = nil
     self.driveinfo = nil
     self.metadata = nil

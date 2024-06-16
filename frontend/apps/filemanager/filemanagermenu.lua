@@ -61,6 +61,9 @@ end
 function FileManagerMenu:registerKeyEvents()
     if Device:hasKeys() then
         self.key_events.ShowMenu = { { "Menu" } }
+        if Device:hasScreenKB() then
+            self.key_events.OpenLastDoc = { { "ScreenKB", "Back" } }
+        end
     end
 end
 
@@ -623,6 +626,21 @@ To:
                     Device.screen:toggleHWDithering(false)
                 end
                 UIManager:setDirty("all", "full")
+            end,
+        })
+    end
+    if Device:isKobo() and Device:hasColorScreen() then
+        table.insert(self.menu_items.developer_options.sub_item_table, {
+            -- We default to a flag (G2) that slightly boosts saturation,
+            -- but it *is* a destructive process, so we want to allow disabling it.
+            -- @translators CFA is a technical term for the technology behind eInk's color panels. It stands for Color Film/Filter Array, leave the abbreviation alone ;).
+            text = _("Disable CFA post-processing"),
+            checked_func = function()
+                return G_reader_settings:isTrue("no_cfa_post_processing")
+            end,
+            callback = function()
+                G_reader_settings:flipNilOrFalse("no_cfa_post_processing")
+                UIManager:askForRestart()
             end,
         })
     end

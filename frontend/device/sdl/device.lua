@@ -68,6 +68,7 @@ local Device = Generic:extend{
     hasBattery = SDL.getPowerInfo,
     hasKeyboard = yes,
     hasKeys = yes,
+    hasSymKey = os.getenv("DISABLE_TOUCH") == "1" and yes or no,
     hasDPad = yes,
     hasWifiToggle = no,
     hasSeamlessWifiToggle = no,
@@ -118,6 +119,12 @@ local Desktop = Device:extend{
     isDesktop = yes,
     canRestart = notOSX,
     hasExitOptions = notOSX,
+}
+
+local Flatpak = Device:extend{
+    model = "Flatpak",
+    isDesktop = yes,
+    canExternalDictLookup = no,
 }
 
 local Emulator = Device:extend{
@@ -436,6 +443,8 @@ io.write("Starting SDL in " .. SDL.getBasePath() .. "\n")
 -------------- device probe ------------
 if os.getenv("APPIMAGE") then
     return AppImage
+elseif os.getenv("FLATPAK") then
+    return Flatpak
 elseif os.getenv("KO_MULTIUSER") then
     return Desktop
 elseif os.getenv("UBUNTU_APPLICATION_ISOLATION") then

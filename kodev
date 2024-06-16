@@ -115,10 +115,10 @@ function setup_env() {
         local ts=()
         # Store list of ts at the same index
         for i in "${!files[@]}"; do
-            local file="${files[${i}]}/koreader"
+            local file="${files[i]}/koreader"
             if [ -d "${file}" ]; then
                 echo "${file} (last modified on $(stat -c %y "${file}"))"
-                ts[${i}]="$(stat -c %Y "${file}")"
+                ts[i]="$(stat -c %Y "${file}")"
             fi
         done
         # Sort the list of ts
@@ -126,15 +126,15 @@ function setup_env() {
         IFS=$'\n' read -d '' -r -a sorted_ts < <(printf '%s\n' "${ts[@]}" | sort -r)
         # Find the id of the most recent ts (spoiler: it's going to be the one currently targeted by this invocation of kodev)
         for i in "${!ts[@]}"; do
-            if [ "${ts[${i}]}" == "${sorted_ts[0]}" ]; then
+            if [ "${ts[i]}" == "${sorted_ts[0]}" ]; then
                 idx="${i}"
                 break
             fi
         done
         # Recap
-        echo "Picking the most recent one: ${files[${idx}]}/koreader"
+        echo "Picking the most recent one: ${files[idx]}/koreader"
     fi
-    EMU_DIR="${files[${idx}]}/koreader"
+    EMU_DIR="${files[idx]}/koreader"
     export EMU_DIR
 }
 
@@ -144,6 +144,7 @@ function kodev-fetch-thirdparty() {
 
 SUPPORTED_TARGETS="
     kindle          Compatible with all Kindle models >= Kindle4
+    kindlehf        Compatible with all Kindles with FW >= 5.16.3
     kindlepw2       With compiler optimizations for Kindle models >= Paperwhite 2
     kindle-legacy   Needed only for Kindle2/3/DXG
     kobo
@@ -154,10 +155,7 @@ SUPPORTED_TARGETS="
     pocketbook
     ubuntu-touch
     appimage
-    debian          Debian package for current arch
-    debian-armel    Debian package for generic armel devices
-    debian-armhf    Debian package for generic armhf devices
-    debian-arm64    Debian package for generic 64 bits arm devices
+    linux
     macos           MacOS app bundle. You need a mac to build this package
     emu             (*default) If no TARGET is given, assume emulator
     win32
@@ -231,6 +229,10 @@ ${SUPPORTED_TARGETS}"
             make TARGET=kindle
             assert_ret_zero $?
             ;;
+        kindlehf)
+            make TARGET=kindlehf
+            assert_ret_zero $?
+            ;;
         kindlepw2)
             make TARGET=kindlepw2
             assert_ret_zero $?
@@ -268,20 +270,8 @@ ${SUPPORTED_TARGETS}"
             make TARGET=appimage
             assert_ret_zero $?
             ;;
-        debian)
-            make TARGET=debian
-            assert_ret_zero $?
-            ;;
-        debian-armel)
-            make TARGET=debian-armel
-            assert_ret_zero $?
-            ;;
-        debian-armhf)
-            make TARGET=debian-armhf
-            assert_ret_zero $?
-            ;;
-        debian-arm64)
-            make TARGET=debian-arm64
+        linux)
+            make TARGET=linux
             assert_ret_zero $?
             ;;
         macos)
@@ -361,6 +351,9 @@ ${SUPPORTED_TARGETS}"
         kindle)
             make TARGET=kindle clean
             ;;
+        kindlehf)
+            make TARGET=kindlehf clean
+            ;;
         kindlepw2)
             make TARGET=kindlepw2 clean
             ;;
@@ -389,17 +382,8 @@ ${SUPPORTED_TARGETS}"
         appimage)
             make TARGET=appimage clean
             ;;
-        debian)
-            make TARGET=debian clean
-            ;;
-        debian-armel)
-            make TARGET=debian-armel clean
-            ;;
-        debian-armhf)
-            make TARGET=debian-armhf clean
-            ;;
-        debian-arm64)
-            make TARGET=debian-arm64 clean
+        linux)
+            make TARGET=linux clean
             ;;
         macos)
             is_mac
@@ -499,6 +483,10 @@ ${SUPPORTED_RELEASE_TARGETS}"
             kodev-build kindle
             make TARGET=kindle update
             ;;
+        kindlehf)
+            kodev-build kindlehf
+            make TARGET=kindlehf update
+            ;;
         kindlepw2)
             kodev-build kindlepw2
             make TARGET=kindlepw2 update
@@ -540,21 +528,9 @@ ${SUPPORTED_RELEASE_TARGETS}"
             kodev-build appimage
             make TARGET=appimage update
             ;;
-        debian)
-            kodev-build debian
-            make TARGET=debian update
-            ;;
-        debian-armel)
-            kodev-build debian-armel
-            make TARGET=debian-armel update
-            ;;
-        debian-armhf)
-            kodev-build debian-armhf
-            make TARGET=debian-armhf update
-            ;;
-        debian-arm64)
-            kodev-build debian-arm64
-            make TARGET=debian-arm64 update
+        linux)
+            kodev-build linux
+            make TARGET=linux update
             ;;
         macos)
             is_mac
@@ -788,9 +764,9 @@ TARGET:
                 adb install "koreader-android-${ANDROID_ARCH}${KODEBUG_SUFFIX}-${VERSION}.apk"
                 assert_ret_zero $?
                 # there's no adb run so we do this…
-                adb shell monkey -p org.koreader.launcher${KODEBUG_SUFFIX/-/.} -c android.intent.category.LAUNCHER 1
+                adb shell monkey -p "org.koreader.launcher${KODEBUG_SUFFIX/-/.}" -c android.intent.category.LAUNCHER 1
                 assert_ret_zero $?
-                adb logcat KOReader:V luajit-launcher:V dlopen:V "*:E"
+                adb logcat KOReader:V k2pdfopt:V luajit-launcher:V dlopen:V "*:E"
             } || echo "Failed to find adb in PATH to interact with Android device."
             ;;
         *)
@@ -840,7 +816,7 @@ TARGET:
                     # We don't want to stack valgrind/catchsegv on top of GDB ;).
                     if [[ "${gdb}" == gdb* ]]; then
                         # The standard CLI needs a little hand holding to properly pass arguments to the process it'll monitor
-                        KOREADER_COMMAND="${gdb} --args ./luajit reader.lua ${KOREADER_ARGS} ${args}"
+                        KOREADER_COMMAND="${gdb} --directory "${CURDIR}/base" --args ./luajit reader.lua ${KOREADER_ARGS} ${args}"
                     else
                         KOREADER_COMMAND="${gdb} ./luajit reader.lua ${KOREADER_ARGS} ${args}"
                     fi
@@ -861,7 +837,7 @@ TARGET:
                 capture_ctrl_c
             fi
 
-            exit ${RETURN_VALUE}
+            exit "${RETURN_VALUE}"
             ;;
     esac
 }

@@ -139,7 +139,7 @@ local Input = {
             "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
             "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
             "Up", "Down", "Left", "Right", "Press", "Backspace", "End",
-            "Back", "Sym", "AA", "Menu", "Home", "Del",
+            "Back", "Sym", "AA", "Menu", "Home", "Del", "ScreenKB",
             "LPgBack", "RPgBack", "LPgFwd", "RPgFwd"
         },
     },
@@ -171,6 +171,7 @@ local Input = {
         Shift = false,
         Sym = false,
         Meta = false,
+        ScreenKB = false,
     },
 
     -- repeat state:
@@ -195,6 +196,10 @@ local Input = {
     setClipboardText = function(text)
         _internal_clipboard_text = text or ""
     end,
+
+    -- open'ed input devices hashmap (key: path, value: fd number)
+    -- Must be a class member, both because Input is a singleton and that state is process-wide anyway.
+    opened_devices = {},
 }
 
 function Input:new(o)
@@ -295,14 +300,97 @@ function Input:disableRotationMap()
 end
 
 --[[--
-Wrapper for FFI input open.
+Wrapper for our Lua/C input module's open.
 
 Note that we adhere to the "." syntax here for compatibility.
 
-@todo Clean up separation FFI/this.
+The `name` argument is optional, and used for logging purposes only.
 --]]
-function Input.open(device, is_emu_events)
-    return input.open(device, is_emu_events and 1 or 0)
+function Input.open(path, name)
+    -- Make sure we don't open the same device twice.
+    if not Input.opened_devices[path] then
+        local fd = input.open(path)
+        if fd then
+            Input.opened_devices[path] = fd
+            if name then
+                logger.dbg("Opened fd", fd, "for input device", name, "@", path)
+            else
+                logger.dbg("Opened fd", fd, "for input device @", path)
+            end
+        end
+        -- No need to log failures, input will have raised an error already,
+        -- and we want to make those fatal, so we don't protect this call.
+        return fd
+    end
+end
+
+--[[--
+Wrapper for our Lua/C input module's fdopen.
+
+Note that we adhere to the "." syntax here for compatibility.
+
+The `name` argument is optional, and used for logging purposes only.
+`path` is mandatory, though!
+--]]
+function Input.fdopen(fd, path, name)
+    -- Make sure we don't open the same device twice.
+    if not Input.opened_devices[path] then
+        input.fdopen(fd)
+        -- As with input.open, it will throw on error (closing the fd first)
+        Input.opened_devices[path] = fd
+        if name then
+            logger.dbg("Kept fd", fd, "open for input device", name, "@", path)
+        else
+            logger.dbg("Kept fd", fd, "open for input device @", path)
+        end
+        return fd
+    end
+end
+
+--[[--
+Wrapper for our Lua/C input module's close.
+
+Note that we adhere to the "." syntax here for compatibility.
+--]]
+function Input.close(path)
+    -- Make sure we actually know about this device
+    local fd = Input.opened_devices[path]
+    if fd then
+        local ok, err = input.close(fd)
+        if ok or err == C.ENODEV then
+            -- Either the call succeeded,
+            -- or the backend had already caught an ENODEV in waitForInput and closed the fd internally.
+            -- (Because the EvdevInputRemove Event comes from an UsbDevicePlugOut uevent forwarded as an... *input* EV_KEY event ;)).
+            -- Regardless, that device is gone, so clear its spot in the hashmap.
+            Input.opened_devices[path] = nil
+        end
+    else
+        logger.warn("Tried to close an unknown input device @", path)
+    end
+end
+
+--[[--
+Wrapper for our Lua/C input module's closeAll.
+
+Note that we adhere to the "." syntax here for compatibility.
+--]]
+function Input.teardown()
+    input.closeAll()
+    Input.opened_devices = {}
+end
+
+-- Wrappers for the custom FFI implementations with no concept of paths or fd
+if input.is_ffi then
+    -- Pass args as-is. None of 'em actually *take* arguments, but some may be invoked as methods...
+    function Input.open(...)
+        return input.open(...)
+    end
+    function Input.close(...)
+        return input.close(...)
+    end
+    function Input.teardown(...)
+        return input.closeAll(...)
+    end
 end
 
 --[[--
@@ -730,6 +818,16 @@ function Input:handlePowerManagementOnlyEv(ev)
         elseif ev.value == KEY_RELEASE then
             return "PowerRelease"
         end
+    end
+
+    -- Make sure we don't leave modifiers in an inconsistent state
+    if self.modifiers[keycode] ~= nil then
+        if ev.value == KEY_PRESS then
+            self.modifiers[keycode] = true
+        elseif ev.value == KEY_RELEASE then
+            self.modifiers[keycode] = false
+        end
+        return
     end
 
     -- Nothing to see, move along!

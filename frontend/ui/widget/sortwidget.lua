@@ -153,6 +153,7 @@ function SortWidget:init()
         self.key_events.Close = { { Device.input.group.Back } }
         self.key_events.NextPage = { { Device.input.group.PgFwd } }
         self.key_events.PrevPage = { { Device.input.group.PgBack } }
+        self.key_events.ShowWidgetMenu = { { "Menu" } }
     end
     if Device:isTouchDevice() then
         self.ges_events.Swipe = {
@@ -241,11 +242,10 @@ function SortWidget:init()
         text = "",
         hold_input = {
             title = _("Enter page number"),
+            input_type = "number",
             hint_func = function()
-                return "(" .. "1 - " .. self.pages .. ")"
+                return string.format("(1 - %s)", self.pages)
             end,
-            type = "number",
-            deny_blank_input = true,
             callback = function(input)
                 local page = tonumber(input)
                 if page and page >= 1 and page <= self.pages then
@@ -273,6 +273,11 @@ function SortWidget:init()
     }
     table.insert(self.layout, {
         self.footer_cancel,
+        self.footer_first_up,
+        self.footer_left,
+        self.footer_page,
+        self.footer_right,
+        self.footer_last_down,
         self.footer_ok,
     })
     local bottom_line = LineWidget:new{
@@ -296,7 +301,7 @@ function SortWidget:init()
         bottom_line_h_padding = padding,
         title = self.title,
         left_icon = not self.sort_disabled and "appbar.menu",
-        left_icon_tap_callback = function() self:showMenu() end,
+        left_icon_tap_callback = function() self:onShowWidgetMenu() end,
         close_callback = function() self:onClose() end,
         show_parent = self,
     }
@@ -475,7 +480,7 @@ function SortWidget:onSwipe(arg, ges_ev)
     end
 end
 
-function SortWidget:showMenu()
+function SortWidget:onShowWidgetMenu()
     local dialog
     local buttons = {
         {{
@@ -519,6 +524,7 @@ function SortWidget:showMenu()
         end,
     }
     UIManager:show(dialog)
+    return true
 end
 
 function SortWidget:sortItems(collate, reverse_collate)

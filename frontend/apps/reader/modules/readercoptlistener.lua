@@ -41,6 +41,11 @@ function ReaderCoptListener:onReadSettings(config)
     self.document._document:setIntProperty("window.status.battery.percent", self.battery_percent)
     self.document._document:setIntProperty("window.status.pos.percent", self.reading_percent)
 
+    -- We will build the top status bar page info string ourselves,
+    -- if we have to display any chunk of it
+    self.page_info_override = self.page_number == 1 or self.page_count == 1 or self.reading_percent == 1
+    self.document:setPageInfoOverride("") -- an empty string lets crengine display its own page info
+
     self:onTimeFormatChanged()
 
     -- Enable or disable crengine header status line (note that for crengine, 0=header enabled, 1=header disabled)
@@ -74,6 +79,113 @@ function ReaderCoptListener:onReaderReady()
             self.document:setAltDocumentProp(prop_key, custom_prop_value)
         end
     end
+end
+
+function ReaderCoptListener:updatePageInfoOverride(pageno)
+    pageno = pageno or self.ui.view.footer.pageno
+
+    if not (self.document.configurable.status_line == 0 and self.view.view_mode == "page" and self.page_info_override) then
+        return
+    end
+    -- There are a few cases where we may not be updated on change, at least:
+    -- - when toggling ReaderPageMap's "Use reference page numbers"
+    -- - when changing footer's nb of digits after decimal point
+    -- but we will update on next page turn. Let's not bother.
+
+    local page_pre = ""
+    local page_number = pageno
+    local page_sep = " / "
+    local page_count = self.ui.document:getPageCount()
+    local page_post = ""
+    local percentage = page_number / page_count
+    local percentage_pre = ""
+    local percentage_post = ""
+    -- Let's use the same setting for nb of digits after decimal point as configured for the footer
+    local percentage_digits =  self.ui.view.footer.settings.progress_pct_format
+    local percentage_fmt = "%." .. percentage_digits .. "f%%"
+
+    -- We want the same output as with ReaderFooter's page_progress() and percentage()
+    -- but here each item (page number, page counte, percentage) is individually toggable,
+    -- so try to get something that make sense when not all are enabled
+    if self.ui.pagemap and self.ui.pagemap:wantsPageLabels() then
+        -- These become strings here
+        page_number = self.ui.pagemap:getCurrentPageLabel(true)
+        page_count = self.ui.pagemap:getLastPageLabel(true)
+    elseif self.ui.document:hasHiddenFlows() then
+        local flow = self.ui.document:getPageFlow(pageno)
+        page_number = tostring(self.ui.document:getPageNumberInFlow(pageno))
+        page_count = tostring(self.ui.document:getTotalPagesInFlow(flow))
+        percentage = page_number / page_count
+        if flow == 0 then
+            page_sep = " // "
+        else
+            page_pre = "["
+            page_post = "]"..tostring(flow)
+            percentage_pre = "["
+            percentage_post = "]"
+        end
+    end
+
+    local page_info = ""
+    if self.page_number == 1 or self.page_count == 1 then
+        page_info = page_info .. page_pre
+        if self.page_number == 1 then
+            page_info = page_info .. page_number
+            if self.page_count == 1 then
+                page_info = page_info .. page_sep
+            end
+        end
+        if self.page_count == 1 then
+            page_info = page_info .. page_count
+        end
+        page_info = page_info .. page_post
+        if self.reading_percent == 1 then
+            page_info = page_info .. "  " -- (double space as done by crengine's own drawing)
+        end
+    end
+    if self.reading_percent == 1 then
+        page_info = page_info .. percentage_pre .. percentage_fmt:format(percentage*100) .. percentage_post
+    end
+
+    if self.battery == 1 and self.battery_percent == 1 then -- append battery percentage
+        local batt_pre = "["
+        local batt_post = "]"
+        local batt_val = nil
+        if Device:hasBattery() then
+            local powerd = Device:getPowerDevice()
+            local batt_lvl = powerd:getCapacity()
+
+            if Device:hasAuxBattery() and powerd:isAuxBatteryConnected() then
+                local aux_batt_lvl = powerd:getAuxCapacity()
+                if powerd:isAuxCharging() then
+                    batt_pre = "[\u{21AF}"
+                end
+                -- Sum both batteries for the actual text
+                batt_lvl = batt_lvl + aux_batt_lvl
+            else
+                if powerd:isCharging() then
+                    batt_pre = "[\u{21AF}"
+                end
+            end
+            batt_val = string.format("%2d%%", batt_lvl)
+        end
+
+        if batt_val then
+            local battery_info = "  " .. batt_pre .. batt_val .. batt_post
+            --                     ^--- (double space as done by crengine's own drawing)
+            page_info = page_info .. battery_info
+        end
+    end
+
+    self.document:setPageInfoOverride(page_info)
+end
+
+function ReaderCoptListener:onPageUpdate(pageno)
+    self:updatePageInfoOverride(pageno)
+end
+
+function ReaderCoptListener:onPosUpdate(pos, pageno)
+    self:updatePageInfoOverride(pageno)
 end
 
 function ReaderCoptListener:onBookMetadataChanged(prop_updated)
@@ -191,6 +303,12 @@ ReaderCoptListener.onSuspend = ReaderCoptListener.unscheduleHeaderRefresh
 function ReaderCoptListener:setAndSave(setting, property, value)
     self.document._document:setIntProperty(property, value)
     G_reader_settings:saveSetting(setting, value)
+    self.page_info_override = self.page_number == 1 or self.page_count == 1 or self.reading_percent == 1
+    if self.page_info_override then
+        self:updatePageInfoOverride()
+    else
+        self.document:setPageInfoOverride("") -- Don't forget to restore CRE default behaviour.
+    end
     -- Have crengine redraw it (even if hidden by the menu at this time)
     self.ui.rolling:updateBatteryState()
     self:updateHeader()
@@ -211,7 +329,7 @@ function ReaderCoptListener:getAltStatusBarMenu()
         separator = true,
         sub_item_table = {
             {
-                text = _("About alternate status bar"),
+                text = _("About alt status bar"),
                 keep_menu_open = true,
                 callback = function()
                     UIManager:show(InfoMessage:new{
@@ -294,15 +412,18 @@ function ReaderCoptListener:getAltStatusBarMenu()
             },
             {
                 text_func = function()
-                    local status = _("off")
+                    local status = _("Battery status")
                     if self.battery == 1 then
                         if self.battery_percent == 1 then
-                            status = _("percentage")
+                            status = _("Battery status: percentage")
                         else
-                            status = _("icon")
+                            status = _("Battery status: icon")
                         end
                     end
-                    return T(_("Battery status: %1"), status)
+                    return status
+                end,
+                checked_func = function()
+                    return self.battery == 1
                 end,
                 sub_item_table = {
                     {

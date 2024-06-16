@@ -69,7 +69,7 @@ return {
             {
                 text = _("Postpone screen update after wake-up"),
                 sub_item_table = {
-                    genMenuItem(_("No delay"), "screensaver_delay", "disable"),
+                    genMenuItem(_("Never"), "screensaver_delay", "disable"),
                     genMenuItem(_("1 second"), "screensaver_delay", "1"),
                     genMenuItem(_("3 seconds"), "screensaver_delay", "3"),
                     genMenuItem(_("5 seconds"), "screensaver_delay", "5"),
@@ -85,7 +85,7 @@ return {
                 end,
                 sub_item_table = {
                     {
-                        text = _("Select image or document cover"),
+                        text = _("Choose image or document cover"),
                         enabled_func = function()
                             return G_reader_settings:readSetting("screensaver_type") == "document_cover"
                         end,
@@ -95,7 +95,7 @@ return {
                         end,
                     },
                     {
-                        text = _("Select random image folder"),
+                        text = _("Choose random image folder"),
                         enabled_func = function()
                             return G_reader_settings:readSetting("screensaver_type") == "random_image"
                         end,

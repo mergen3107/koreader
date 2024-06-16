@@ -15,7 +15,7 @@ export KO_PATH_OPEN_BOOK="/tmp/.koreader.open"
 INSTANCE_PID=$(cat /tmp/koreader.pid 2>/dev/null)
 if [ "${INSTANCE_PID}" != "" ] && [ -e "/proc/${INSTANCE_PID}" ]; then
     echo "$@" >"${KO_PATH_OPEN_BOOK}"
-    exec /usr/bin/iv2sh SetActiveTask "${INSTANCE_PID}" 0
+    exec $(if [ -f "/usr/bin/iv2sh" ]; then echo /usr/bin/iv2sh; else echo /ebrmain/bin/iv2sh; fi) SetActiveTask "${INSTANCE_PID}" 0
 fi
 
 # try to bring in raw device input (on rooted devices)
@@ -78,9 +78,6 @@ ko_update_check() {
 # we're always starting from our working directory
 cd ${KOREADER_DIR} || exit
 
-# export trained OCR data directory
-export TESSDATA_PREFIX="data"
-
 # export dict directory
 export STARDICT_DATA_DIR="data/dict"
 
@@ -121,7 +118,7 @@ while [ "${RETURN_VALUE}" -ne 0 ]; do
     if [ "${RETURN_VALUE}" -ne 0 ] && [ "${RETURN_VALUE}" -ne ${KO_RC_RESTART} ]; then
         # Increment the crash counter
         # shellcheck disable=SC2003
-        CRASH_COUNT="$(expr ${CRASH_COUNT} + 1)"
+        CRASH_COUNT="$(expr "${CRASH_COUNT}" + 1)"
         CRASH_TS="$(date +'%s')"
         # Reset it to a first crash if it's been a while since our last crash...
         # shellcheck disable=SC2003
@@ -151,7 +148,7 @@ while [ "${RETURN_VALUE}" -ne 0 ]; do
         bombMargin="$(expr ${FONTH} + ${FONTH} / 2)"
         # With a little notice at the top of the screen, on a big gray screen of death ;).
         "${KOREADER_DIR}/fbink" -q -b -c -B GRAY9 -m -y 1 "Don't Panic! (Crash n°${CRASH_COUNT} -> ${RETURN_VALUE})"
-        if [ ${CRASH_COUNT} -eq 1 ]; then
+        if [ "${CRASH_COUNT}" -eq 1 ]; then
             # Warn that we're sleeping for a bit...
             "${KOREADER_DIR}/fbink" -q -b -O -m -y 2 "KOReader will restart in 15 sec."
         fi
@@ -171,13 +168,13 @@ while [ "${RETURN_VALUE}" -ne 0 ]; do
             echo "!!!!"
             echo "Uh oh, something went awry... (Crash n°${CRASH_COUNT}: $(date +'%x @ %X'))"
         } >>crash.log 2>&1
-        if [ ${CRASH_COUNT} -lt 5 ] && [ "${ALWAYS_ABORT}" = "false" ]; then
+        if [ "${CRASH_COUNT}" -lt 5 ] && [ "${ALWAYS_ABORT}" = "false" ]; then
             echo "Attempting to restart KOReader . . ." >>crash.log 2>&1
             echo "!!!!" >>crash.log 2>&1
         fi
 
         # Pause a bit if it's the first crash in a while, so that it actually has a chance of getting noticed ;).
-        if [ ${CRASH_COUNT} -eq 1 ]; then
+        if [ "${CRASH_COUNT}" -eq 1 ]; then
             sleep 15
         fi
         # Cycle the last crash timestamp
@@ -185,7 +182,7 @@ while [ "${RETURN_VALUE}" -ne 0 ]; do
 
         # But if we've crashed more than 5 consecutive times, exit, because we wouldn't want to be stuck in a loop...
         # NOTE: No need to check for ALWAYS_ABORT, CRASH_COUNT will always be 1 when it's true ;).
-        if [ ${CRASH_COUNT} -ge 5 ]; then
+        if [ "${CRASH_COUNT}" -ge 5 ]; then
             echo "Too many consecutive crashes, aborting . . ." >>crash.log 2>&1
             echo "!!!! ! !!!!" >>crash.log 2>&1
             break

@@ -2,11 +2,11 @@ local Blitbuffer = require("ffi/blitbuffer")
 local Cache = require("cache")
 local Device = require("device")
 local Geom = require("ui/geometry")
+local InputContainer = require("ui/widget/container/inputcontainer")
 local Persist = require("persist")
 local RenderImage = require("ui/renderimage")
 local TileCacheItem = require("document/tilecacheitem")
 local UIManager = require("ui/uimanager")
-local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local Screen = Device.screen
 local ffiutil = require("ffi/util")
 local logger = require("logger")
@@ -18,13 +18,15 @@ local _ = require("gettext")
 -- It handles launching via the menu or Dispatcher/Gestures two fullscreen
 -- widgets related to showing pages and thumbnails that will make use of
 -- its services: BookMap and PageBrowser.
-local ReaderThumbnail = WidgetContainer:extend{}
+local ReaderThumbnail = InputContainer:extend{}
 
 function ReaderThumbnail:init()
-    if not Device:isTouchDevice() then
+    self:registerKeyEvents()
+    if not Device:isTouchDevice() and not Device:useDPadAsActionKeys() then
         -- The BookMap and PageBrowser widgets depend too much on gestures,
-        -- making them work with keys would be hard and very limited, so
+        -- making them work with not enough keys on Non-Touch would be hard and very limited, so
         -- just don't make them available.
+        -- We will only let BookMap run on useDPadAsActionKeys devices.
         return
     end
 
@@ -62,6 +64,16 @@ function ReaderThumbnail:init()
     end
 end
 
+function ReaderThumbnail:registerKeyEvents()
+    if Device:hasDPad() and Device:useDPadAsActionKeys() then
+        if Device:hasKeyboard() then
+            self.key_events.ShowBookMap = { { "Shift", "Down" } }
+        else
+            self.key_events.ShowBookMap = { { "ScreenKB", "Down" } }
+        end
+    end
+end
+
 function ReaderThumbnail:addToMainMenu(menu_items)
     menu_items.book_map = {
         text = _("Book map"),
@@ -75,6 +87,8 @@ function ReaderThumbnail:addToMainMenu(menu_items)
             self:onShowBookMap(true)
         end,
     }
+    -- PageBrowser still needs some work before we can let it run on non-touch devices with useDPadAsActionKeys
+    if Device:hasDPad() and Device:useDPadAsActionKeys() then return end
     menu_items.page_browser = {
         text = _("Page browser"),
         callback = function()

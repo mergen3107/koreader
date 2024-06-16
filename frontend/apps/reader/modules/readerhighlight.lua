@@ -19,6 +19,7 @@ local ffiUtil = require("ffi/util")
 local time = require("ui/time")
 local _ = require("gettext")
 local C_ = _.pgettext
+local N_ = _.ngettext
 local T = ffiUtil.template
 local Screen = Device.screen
 
@@ -229,7 +230,16 @@ end
 function ReaderHighlight:onGesture() end
 
 function ReaderHighlight:registerKeyEvents()
-    if Device:hasKeys() then
+    if Device:hasDPad() then
+        self.key_events.StopHighlightIndicator  = { { Device.input.group.Back }, args = true } -- true: clear highlight selection
+        self.key_events.UpHighlightIndicator    = { { "Up" },    event = "MoveHighlightIndicator", args = {0, -1} }
+        self.key_events.DownHighlightIndicator  = { { "Down" },  event = "MoveHighlightIndicator", args = {0, 1} }
+        -- let hasFewKeys device move the indicator left
+        self.key_events.LeftHighlightIndicator  = { { "Left" },  event = "MoveHighlightIndicator", args = {-1, 0} }
+        self.key_events.RightHighlightIndicator = { { "Right" }, event = "MoveHighlightIndicator", args = {1, 0} }
+        self.key_events.HighlightPress          = { { "Press" } }
+    end
+    if Device:hasKeyboard() then
         -- Used for text selection with dpad/keys
         local QUICK_INDICATOR_MOVE = true
         self.key_events.QuickUpHighlightIndicator    = { { "Shift", "Up" },    event = "MoveHighlightIndicator", args = {0, -1, QUICK_INDICATOR_MOVE} }
@@ -237,15 +247,12 @@ function ReaderHighlight:registerKeyEvents()
         self.key_events.QuickLeftHighlightIndicator  = { { "Shift", "Left" },  event = "MoveHighlightIndicator", args = {-1, 0, QUICK_INDICATOR_MOVE} }
         self.key_events.QuickRightHighlightIndicator = { { "Shift", "Right" }, event = "MoveHighlightIndicator", args = {1, 0, QUICK_INDICATOR_MOVE} }
         self.key_events.StartHighlightIndicator      = { { "H" } }
-        if Device:hasDPad() then
-            self.key_events.StopHighlightIndicator  = { { Device.input.group.Back }, args = true } -- true: clear highlight selection
-            self.key_events.UpHighlightIndicator    = { { "Up" },    event = "MoveHighlightIndicator", args = {0, -1} }
-            self.key_events.DownHighlightIndicator  = { { "Down" },  event = "MoveHighlightIndicator", args = {0, 1} }
-            -- let hasFewKeys device move the indicator left
-            self.key_events.LeftHighlightIndicator  = { { "Left" },  event = "MoveHighlightIndicator", args = {-1, 0} }
-            self.key_events.RightHighlightIndicator = { { "Right" }, event = "MoveHighlightIndicator", args = {1, 0} }
-            self.key_events.HighlightPress          = { { "Press" } }
-        end
+    elseif Device:hasScreenKB() then
+        local QUICK_INDICATOR_MOVE = true
+        self.key_events.QuickUpHighlightIndicator    = { { "ScreenKB", "Up" },    event = "MoveHighlightIndicator", args = {0, -1, QUICK_INDICATOR_MOVE} }
+        self.key_events.QuickDownHighlightIndicator  = { { "ScreenKB", "Down" },  event = "MoveHighlightIndicator", args = {0, 1, QUICK_INDICATOR_MOVE} }
+        self.key_events.QuickLeftHighlightIndicator  = { { "ScreenKB", "Left" },  event = "MoveHighlightIndicator", args = {-1, 0, QUICK_INDICATOR_MOVE} }
+        self.key_events.QuickRightHighlightIndicator = { { "ScreenKB", "Right" }, event = "MoveHighlightIndicator", args = {1, 0, QUICK_INDICATOR_MOVE} }
     end
 end
 
@@ -367,7 +374,7 @@ local highlight_dialog_position = {
 
 function ReaderHighlight:addToMainMenu(menu_items)
     -- insert table to main reader menu
-    if not Device:isTouchDevice() and Device:hasDPad() then
+    if not Device:isTouchDevice() and Device:hasDPad() and not Device:useDPadAsActionKeys() then
         menu_items.start_content_selection = {
             text = _("Start content selection"),
             callback = function()
@@ -539,42 +546,45 @@ function ReaderHighlight:addToMainMenu(menu_items)
         end,
         sub_item_table = sub_item_table,
     })
-    -- highlight very-long-press interval
-    table.insert(menu_items.long_press.sub_item_table, {
-        text_func = function()
-            return T(_("Highlight very-long-press interval: %1 s"),
-                G_reader_settings:readSetting("highlight_long_hold_threshold_s", 3))
-        end,
-        keep_menu_open = true,
-        callback = function(touchmenu_instance)
-            local SpinWidget = require("ui/widget/spinwidget")
-            local items = SpinWidget:new{
-                title_text = _("Highlight very-long-press interval"),
-                info_text = _("If a long-press is not released in this interval, it is considered a very-long-press. On document text, single word selection will not be triggered."),
-                width = math.floor(self.screen_w * 0.75),
-                value = G_reader_settings:readSetting("highlight_long_hold_threshold_s", 3),
-                value_min = 2.5,
-                value_max = 20,
-                value_step = 0.1,
-                value_hold_step = 0.5,
-                unit = C_("Time", "s"),
-                precision = "%0.1f",
-                ok_text = _("Set interval"),
-                default_value = 3,
-                callback = function(spin)
-                    G_reader_settings:saveSetting("highlight_long_hold_threshold_s", spin.value)
-                    if touchmenu_instance then touchmenu_instance:updateItems() end
-                end,
-            }
-            UIManager:show(items)
-        end,
-    })
+    if Device:isTouchDevice() then
+        -- highlight very-long-press interval
+        table.insert(menu_items.long_press.sub_item_table, {
+            text_func = function()
+                return T(_("Highlight very-long-press interval: %1 s"),
+                    G_reader_settings:readSetting("highlight_long_hold_threshold_s", 3))
+            end,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                local SpinWidget = require("ui/widget/spinwidget")
+                local items = SpinWidget:new{
+                    title_text = _("Highlight very-long-press interval"),
+                    info_text = _("If a long-press is not released in this interval, it is considered a very-long-press. On document text, single word selection will not be triggered."),
+                    width = math.floor(self.screen_w * 0.75),
+                    value = G_reader_settings:readSetting("highlight_long_hold_threshold_s", 3),
+                    value_min = 2.5,
+                    value_max = 20,
+                    value_step = 0.1,
+                    value_hold_step = 0.5,
+                    unit = C_("Time", "s"),
+                    precision = "%0.1f",
+                    ok_text = _("Set interval"),
+                    default_value = 3,
+                    callback = function(spin)
+                        G_reader_settings:saveSetting("highlight_long_hold_threshold_s", spin.value)
+                        if touchmenu_instance then touchmenu_instance:updateItems() end
+                    end,
+                }
+                UIManager:show(items)
+            end,
+        })
+    end
 
     table.insert(menu_items.long_press.sub_item_table, {
         text = _("Auto-scroll when selection reaches a corner"),
         help_text = _([[
 Auto-scroll to show part of the previous page when your text selection reaches the top left corner, or of the next page when it reaches the bottom right corner.
 Except when in two columns mode, where this is limited to showing only the previous or next column.]]),
+        separator = true,
         checked_func = function()
             if self.ui.paging then return false end
             return not self.view.highlight.disabled and G_reader_settings:nilOrTrue("highlight_corner_scroll")
@@ -588,6 +598,73 @@ Except when in two columns mode, where this is limited to showing only the previ
             self.allow_corner_scroll = G_reader_settings:nilOrTrue("highlight_corner_scroll")
         end,
     })
+    -- we allow user to select the rate at which the content selection tool moves through screen
+    if not Device:isTouchDevice() and Device:hasDPad() then
+        table.insert(menu_items.long_press.sub_item_table, {
+            text_func = function()
+                return T(_("Rate of movement in content selection: %1"), G_reader_settings:readSetting("highlight_non_touch_factor") or 4)
+            end,
+            callback = function(touchmenu_instance)
+                local SpinWidget = require("ui/widget/spinwidget")
+                local curr_val = G_reader_settings:readSetting("highlight_non_touch_factor") or 4
+                local spin_widget = SpinWidget:new{
+                    value = curr_val,
+                    value_min = 0.25,
+                    value_max = 5,
+                    precision = "%.2f",
+                    value_step = 0.25,
+                    default_value = 4,
+                    title_text = _("Rate of movement"),
+                    info_text = _("Select a decimal value from 0.25 to 5. A smaller value results in a larger travel distance per keystroke. Font size and this value are inversely correlated, meaning a smaller font size requires a larger value and vice versa."),
+                    callback = function(spin)
+                        G_reader_settings:saveSetting("highlight_non_touch_factor", spin.value)
+                        if touchmenu_instance then touchmenu_instance:updateItems() end
+                    end
+                }
+                UIManager:show(spin_widget)
+            end,
+        })
+        table.insert(menu_items.long_press.sub_item_table, {
+            text = _("Speed-up rate on multiple keystrokes"),
+            checked_func = function()
+                return G_reader_settings:nilOrTrue("highlight_non_touch_spedup")
+            end,
+            enabled_func = function()
+                return not self.view.highlight.disabled
+            end,
+            callback = function()
+                G_reader_settings:flipNilOrTrue("highlight_non_touch_spedup")
+            end,
+        })
+        table.insert(menu_items.long_press.sub_item_table, {
+            text_func = function()
+                local highlight_non_touch_interval = G_reader_settings:readSetting("highlight_non_touch_interval") or 1
+                return T(N_("Speed-up rate interval: 1 second", "Speed-up rate interval: %1 seconds", highlight_non_touch_interval), highlight_non_touch_interval)
+            end,
+            enabled_func = function()
+                return not self.view.highlight.disabled and G_reader_settings:nilOrTrue("highlight_non_touch_spedup")
+            end,
+            callback = function(touchmenu_instance)
+                local SpinWidget = require("ui/widget/spinwidget")
+                local curr_val = G_reader_settings:readSetting("highlight_non_touch_interval") or 1
+                local spin_widget = SpinWidget:new{
+                    value = curr_val,
+                    value_min = 0.1,
+                    value_max = 1,
+                    precision = "%.1f",
+                    value_step = 0.1,
+                    default_value = 1,
+                    title_text = _("Time interval"),
+                    info_text = _("Select a decimal value up to 1 second. This is the period of time within which multiple keystrokes will speed-up rate of travel."),
+                    callback = function(spin)
+                        G_reader_settings:saveSetting("highlight_non_touch_interval", spin.value)
+                        if touchmenu_instance then touchmenu_instance:updateItems() end
+                    end
+                }
+                UIManager:show(spin_widget)
+            end,
+        })
+    end
 
     -- long_press setting is under taps_and_gestures menu which is not available for non-touch devices
     -- Clone long_press setting and change its label, making it much more meaningful for non-touch device users.
@@ -1465,9 +1542,9 @@ No OCR results or no language data.
 
 KOReader has a build-in OCR engine for recognizing words in scanned PDF and DjVu documents. In order to use OCR in scanned pages, you need to install tesseract trained data for your document language.
 
-You can download language data files for version 3.04 from https://tesseract-ocr.github.io/tessdoc/Data-Files
+You can download language data files for Tesseract version 5.3.4 from https://tesseract-ocr.github.io/tessdoc/Data-Files
 
-Copy the language data files for Tesseract 3.04 (e.g., eng.traineddata for English and spa.traineddata for Spanish) into koreader/data/tessdata]])
+Copy the language data files (e.g., eng.traineddata for English and spa.traineddata for Spanish) into koreader/data/tessdata]])
 
 function ReaderHighlight:lookup(selected_text, selected_link)
     -- convert sboxes to word boxes
@@ -1691,6 +1768,14 @@ function ReaderHighlight:onCycleHighlightAction()
     return true
 end
 
+function ReaderHighlight:getHighlightStyleString(style) -- for bookmark list
+    for _, v in ipairs(highlight_style) do
+        if v[2] == style then
+            return v[1]
+        end
+    end
+end
+
 function ReaderHighlight:onCycleHighlightStyle()
     local current_style = self.view.highlight.saved_drawer
     local next_style_num
@@ -1851,7 +1936,14 @@ function ReaderHighlight:addNote(text)
 end
 
 function ReaderHighlight:editHighlight(index, is_new_note, text)
-    self.ui.bookmark:setBookmarkNote(index, is_new_note, text)
+    local note_updated_callback = function()
+        local item = self.ui.annotation.annotations[index]
+        self:writePdfAnnotation("content", item, item.note)
+        if self.view.highlight.note_mark then -- refresh note marker
+            UIManager:setDirty(self.dialog, "ui")
+        end
+    end
+    self.ui.bookmark:setBookmarkNote(index, is_new_note, text, note_updated_callback)
 end
 
 function ReaderHighlight:editHighlightStyle(index)
@@ -2138,6 +2230,8 @@ function ReaderHighlight:onHighlightPress()
 end
 
 function ReaderHighlight:onStartHighlightIndicator()
+    -- disable long-press icon (poke-ball), as it is triggered constantly due to NT devices needing a workaround for text selection to work.
+    self.long_hold_reached_action = function() end
     if self.view.visible_area and not self._current_indicator_pos then
         -- set start position to centor of page
         local rect = self._previous_indicator_pos
@@ -2177,8 +2271,8 @@ function ReaderHighlight:onMoveHighlightIndicator(args)
         local dx, dy, quick_move = unpack(args)
         local quick_move_distance_dx = self.view.visible_area.w * (1/5) -- quick move distance: fifth of visible_area
         local quick_move_distance_dy = self.view.visible_area.h * (1/5)
-        -- single move distance, small and capable to move on word with small font size and narrow line height
-        local move_distance = Size.item.height_default / 4
+        -- single move distance, user adjustable, default value (4) capable to move on word with small font size and narrow line height
+        local move_distance = Size.item.height_default / (G_reader_settings:readSetting("highlight_non_touch_factor") or 4)
         local rect = self._current_indicator_pos:copy()
         if quick_move then
             rect.x = rect.x + quick_move_distance_dx * dx
@@ -2187,12 +2281,16 @@ function ReaderHighlight:onMoveHighlightIndicator(args)
             local now = time:now()
             if dx == self._last_indicator_move_args.dx and dy == self._last_indicator_move_args.dy then
                 local diff = now - self._last_indicator_move_args.time
-                -- if press same arrow key in 1 second, speed up
+                -- if user presses same arrow key within 1 second (default, user adjustable), speed up
                 -- double press: 4 single move distances, usually move to next word or line
                 -- triple press: 16 single distances, usually skip several words or lines
-                -- quadruple press: 54 single distances, almost move to screen edge
-                if diff < time.s(1) then
-                    move_distance = self._last_indicator_move_args.distance * 4
+                -- quadruple press: 64 single distances, almost move to screen edge
+                if G_reader_settings:nilOrTrue("highlight_non_touch_spedup") then
+                    -- user selects whether to use 'constant' or [this] 'sped up' rate (speed-up on by default)
+                    local t_inter = G_reader_settings:readSetting("highlight_non_touch_interval") or 1
+                    if diff < time.s( t_inter ) then
+                        move_distance = self._last_indicator_move_args.distance * 4
+                    end
                 end
             end
             rect.x = rect.x + move_distance * dx

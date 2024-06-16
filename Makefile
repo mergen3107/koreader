@@ -1,18 +1,21 @@
+PHONY = all android-ndk android-sdk base clean coverage doc fetchthirdparty po pot static-check test testfront
+
 # koreader-base directory
 KOR_BASE?=base
 
 include $(KOR_BASE)/Makefile.defs
 
+RELEASE_DATE := $(shell git show -s --format=format:"%cd" --date=short HEAD)
 # We want VERSION to carry the version of the KOReader main repo, not that of koreader-base
-VERSION:=$(shell git describe HEAD)
+VERSION := $(shell git describe HEAD)
 # Only append date if we're not on a whole version, like v2018.11
 ifneq (,$(findstring -,$(VERSION)))
-	VERSION:=$(VERSION)_$(shell git show -s --format=format:"%cd" --date=short HEAD)
+	VERSION := $(VERSION)_$(RELEASE_DATE)
 endif
 
 # releases do not contain tests and misc data
 IS_RELEASE := $(if $(or $(EMULATE_READER),$(WIN32)),,1)
-IS_RELEASE := $(if $(or $(IS_RELEASE),$(APPIMAGE),$(DEBIAN),$(MACOS)),1,)
+IS_RELEASE := $(if $(or $(IS_RELEASE),$(APPIMAGE),$(LINUX),$(MACOS)),1,)
 
 ifeq ($(ANDROID_ARCH), arm64)
 	ANDROID_ABI?=arm64-v8a
@@ -28,6 +31,17 @@ endif
 # Use the git commit count as the (integer) Android version code
 ANDROID_VERSION?=$(shell git rev-list --count HEAD)
 ANDROID_NAME?=$(VERSION)
+
+LINUX_ARCH?=native
+ifeq ($(LINUX_ARCH), native)
+	LINUX_ARCH_NAME:=$(shell uname -m)
+else ifeq ($(LINUX_ARCH), arm64)
+	LINUX_ARCH_NAME:=aarch64
+else ifeq ($(LINUX_ARCH), arm)
+	LINUX_ARCH_NAME:=armv7l
+endif
+LINUX_ARCH_NAME?=$(LINUX_ARCH)
+
 
 MACHINE=$(TARGET_MACHINE)
 ifdef KODEBUG
@@ -57,7 +71,7 @@ ifeq ($(abspath $(OUTPUT_DIR)),$(OUTPUT_DIR))
 else
   ABSOLUTE_OUTPUT_DIR = $(KOR_BASE)/$(OUTPUT_DIR)
 endif
-OUTPUT_DIR_ARTIFACTS = $(ABSOLUTE_OUTPUT_DIR)/!(cache|history|thirdparty)
+OUTPUT_DIR_ARTIFACTS = $(ABSOLUTE_OUTPUT_DIR)/!(cache|cmake|history|staging|thirdparty)
 
 all: base
 	install -d $(INSTALL_DIR)/koreader
@@ -169,6 +183,12 @@ ifneq (,$(wildcard make/$(TARGET).mk))
   include make/$(TARGET).mk
 endif
 
+android-ndk:
+	$(MAKE) -C $(KOR_BASE)/toolchain $(ANDROID_NDK_HOME)
+
+android-sdk:
+	$(MAKE) -C $(KOR_BASE)/toolchain $(ANDROID_HOME)
+
 # for gettext
 DOMAIN=koreader
 TEMPLATE_DIR=l10n/templates
@@ -199,4 +219,10 @@ static-check:
 doc:
 	make -C doc
 
-.PHONY: all base clean doc test
+.NOTPARALLEL:
+.PHONY: $(PHONY)
+
+LEFTOVERS = $(filter-out $(PHONY) $(INSTALL_DIR)/%,$(MAKECMDGOALS))
+.PHONY: $(LEFTOVERS)
+$(LEFTOVERS):
+	$(MAKE) -C $(KOR_BASE) $@

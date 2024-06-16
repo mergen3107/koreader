@@ -60,7 +60,9 @@ end
 function ReaderToc:onGesture() end
 
 function ReaderToc:registerKeyEvents()
-    if Device:hasKeyboard() then
+    if Device:hasScreenKB() then
+        self.key_events.ShowToc = { { "ScreenKB", "Up" } }
+    elseif Device:hasKeyboard() then
         self.key_events.ShowToc = { { "T" } }
     end
 end
@@ -1201,7 +1203,7 @@ Enabling this option will restrict display to the chapter titles of progress bar
         end
     }
     menu_items.toc_items_with_dots = {
-        text = _("With dots"),
+        text = _("Dot leaders"),
         keep_menu_open = true,
         checked_func = function()
             return G_reader_settings:nilOrTrue("toc_items_with_dots")
